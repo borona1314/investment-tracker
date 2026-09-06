@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>สมุดพอร์ตการลงทุน</title>
+<style>
+  :root{
+    --paper:#F7F5F0; --ink:#1B2430; --ink-soft:#5A6472;
+    --line:#D8D3C8; --gain:#3B7A57; --loss:#B0453B;
+    --gold:#B8912B; --card:#FFFFFF; --alert-bg:#FBF3E3;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:'Segoe UI',-apple-system,'Noto Sans Thai',sans-serif;line-height:1.5;}
+  .wrap{max-width:720px;margin:0 auto;padding:24px 18px 80px;}
+
+  header.hero{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:24px;}
+  .hero-label{font-size:13px;color:var(--ink-soft);margin:0 0 6px;}
+  .hero-value{font-family:Georgia,'Times New Roman',serif;font-size:44px;margin:0;letter-spacing:-0.5px;}
+  .hero-sub{display:flex;gap:18px;margin-top:10px;font-size:14px;}
+  .updated{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+
+  .alerts{margin-bottom:24px;}
+  .alert-card{
+    background:var(--alert-bg);border:1px solid #E4C77A;
+    padding:12px 14px;margin-bottom:8px;font-size:13px;
+  }
+  .alert-card .name{font-weight:600;}
+  .alert-card ul{margin:6px 0 0;padding-left:18px;}
+  .alert-card .news{margin-top:6px;font-size:12px;color:var(--ink-soft);}
+  .alert-card .news a{color:var(--ink-soft);}
+  .no-alerts{font-size:13px;color:var(--ink-soft);}
+
+  .allocation{margin:20px 0 28px;}
+  .alloc-row{display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:6px;}
+  .alloc-name{width:110px;flex-shrink:0;color:var(--ink-soft);}
+  .alloc-bar-bg{flex:1;background:var(--line);height:8px;}
+  .alloc-bar-fill{height:8px;background:var(--ink);}
+  .alloc-pct{width:42px;text-align:right;font-variant-numeric:tabular-nums;}
+
+  .section-title{font-size:15px;font-weight:600;margin:28px 0 10px;}
+  .group{margin-bottom:18px;}
+  .group-name{font-size:12px;color:var(--ink-soft);margin:14px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--line);}
+
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  thead th{text-align:right;font-weight:400;color:var(--ink-soft);font-size:12px;padding:4px 6px;border-bottom:1px solid var(--line);}
+  thead th:first-child{text-align:left;}
+  tbody td{padding:8px 6px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--line);}
+  tbody td:first-child{text-align:left;font-variant-numeric:normal;}
+  tbody tr:last-child td{border-bottom:none;}
+  .pl-gain{color:var(--gain);} .pl-loss{color:var(--loss);}
+  .gain{color:var(--gain);} .loss{color:var(--loss);}
+
+  .note{font-size:12px;color:var(--ink-soft);margin-top:24px;padding-top:12px;border-top:1px solid var(--line);}
+  .empty{color:var(--ink-soft);font-size:14px;padding:16px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <p class="hero-label">มูลค่าพอร์ตรวม</p>
+    <p class="hero-value" id="totalValue">฿0</p>
+    <div class="hero-sub">
+      <span id="totalPL">กำไร/ขาดทุน: ฿0</span>
+      <span id="totalPLPct">(0%)</span>
+    </div>
+    <p class="updated" id="lastUpdated"></p>
+  </header>
+
+  <div class="section-title">🔔 สัญญาณล่าสุด</div>
+  <div class="alerts" id="alertsContainer"><p class="no-alerts">กำลังโหลด...</p></div>
+
+  <div class="allocation" id="allocation"></div>
+
+  <div class="section-title">รายการถือครอง</div>
+  <div id="holdingsContainer"><p class="empty">กำลังโหลด...</p></div>
+
+  <p class="note">
+    ราคาและสัญญาณอัปเดตอัตโนมัติทุกวันโดย GitHub Actions (ข้อมูลจาก Yahoo Finance + Google News)<br>
+    ต้องการซื้อ/ขายเพิ่ม? แก้ไฟล์ <code>portfolio.json</code> ใน repo นี้โดยตรง
+  </p>
+
+</div>
+
+<script>
+const REASON_ICONS = { up: '📈', down: '📉' };
+
+async function fetchJSON(path, fallback){
+  try{
+    const res = await fetch(path + '?t=' + Date.now());
+    if(!res.ok) throw new Error('not found');
+    return await res.json();
+  }catch(e){
+    return fallback;
+  }
+}
+
+function fmt(n){
+  return '฿' + n.toLocaleString('th-TH', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function renderAlerts(alerts){
+  const el = document.getElementById('alertsContainer');
+  if(!alerts || alerts.length === 0){
+    el.innerHTML = '<p class="no-alerts">ไม่มีสัญญาณผิดปกติในช่วงนี้</p>';
+    return;
+  }
+  const sorted = [...alerts].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 15);
+  el.innerHTML = sorted.map(a => `
+    <div class="alert-card">
+      <div><span class="name">${a.name}</span> · ${a.date} · ราคา ${a.price}</div>
+      <ul>${a.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+      ${a.news && a.news.length ? `<div class="news">${a.news.map(n => `<a href="${n.link}" target="_blank" rel="noopener">${n.title}</a>`).join('<br>')}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+async function main(){
+  const [portfolio, history, alerts] = await Promise.all([
+    fetchJSON('portfolio.json', []),
+    fetchJSON('price-history.json', {}),
+    fetchJSON('alerts.json', [])
+  ]);
+
+  renderAlerts(alerts);
+
+  const types = ['หุ้นไทย','หุ้นต่างประเทศ','กองทุนรวม'];
+  const container = document.getElementById('holdingsContainer');
+  const allocEl = document.getElementById('allocation');
+
+  if(!portfolio.length){
+    container.innerHTML = '<p class="empty">ยังไม่มีรายการ — เพิ่มใน data/portfolio.json</p>';
+    return;
+  }
+
+  let totalValue = 0, totalCost = 0;
+  const typeValue = {};
+  const enriched = portfolio.map(h => {
+    let currentPrice = h.manual_price ?? h.cost;
+    if(h.symbol && history[h.symbol] && history[h.symbol].length){
+      currentPrice = history[h.symbol][history[h.symbol].length - 1].close;
+    }
+    const value = h.qty * currentPrice;
+    const cost = h.qty * h.cost;
+    totalValue += value;
+    totalCost += cost;
+    typeValue[h.type] = (typeValue[h.type] || 0) + value;
+    return {...h, currentPrice, value, cost};
+  });
+
+  const totalPL = totalValue - totalCost;
+  const totalPLPct = totalCost > 0 ? (totalPL / totalCost * 100) : 0;
+
+  document.getElementById('totalValue').textContent = fmt(totalValue);
+  const plEl = document.getElementById('totalPL');
+  const plPctEl = document.getElementById('totalPLPct');
+  plEl.textContent = 'กำไร/ขาดทุน: ' + (totalPL >= 0 ? '+' : '') + fmt(totalPL);
+  plPctEl.textContent = '(' + (totalPLPct >= 0 ? '+' : '') + totalPLPct.toFixed(2) + '%)';
+  plEl.className = totalPL >= 0 ? 'gain' : 'loss';
+  plPctEl.className = totalPL >= 0 ? 'gain' : 'loss';
+
+  document.getElementById('lastUpdated').textContent =
+    'ราคาล่าสุด ณ ' + (Object.values(history)[0]?.slice(-1)[0]?.date || '-');
+
+  allocEl.innerHTML = types.filter(t => typeValue[t]).map(t => {
+    const pct = (typeValue[t] / totalValue * 100).toFixed(1);
+    return `<div class="alloc-row">
+      <span class="alloc-name">${t}</span>
+      <div class="alloc-bar-bg"><div class="alloc-bar-fill" style="width:${pct}%"></div></div>
+      <span class="alloc-pct">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  container.innerHTML = types.filter(t => enriched.some(h => h.type === t)).map(t => {
+    const rows = enriched.filter(h => h.type === t).map(h => {
+      const pl = h.value - h.cost;
+      const plPct = h.cost > 0 ? (pl / h.cost * 100) : 0;
+      const plClass = pl >= 0 ? 'pl-gain' : 'pl-loss';
+      return `<tr>
+        <td>${h.name}</td>
+        <td>${h.qty.toLocaleString('th-TH')}</td>
+        <td>${h.currentPrice.toFixed(2)}</td>
+        <td>${fmt(h.value)}</td>
+        <td class="${plClass}">${pl>=0?'+':''}${pl.toFixed(2)} (${plPct>=0?'+':''}${plPct.toFixed(1)}%)</td>
+      </tr>`;
+    }).join('');
+    return `<div class="group">
+      <div class="group-name">${t}</div>
+      <table>
+        <thead><tr><th>ชื่อ</th><th>จำนวน</th><th>ราคา</th><th>มูลค่า</th><th>กำไร/ขาดทุน</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+}
+
+main();
+</script>
+</body>
+</html>
