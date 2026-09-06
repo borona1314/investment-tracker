@@ -2,9 +2,8 @@ name: Update investment data
 
 on:
   schedule:
-    # รันทุกวัน 08:00 เวลาไทย (01:00 UTC)
     - cron: "0 1 * * *"
-  workflow_dispatch: {}  # ให้กดรันเองได้จากแท็บ Actions ด้วย
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,12 +21,12 @@ jobs:
           python-version: "3.11"
 
       - name: Run update script
-        run: python scripts/update_data.py
+        run: python update_data.py
 
       - name: Commit and push if changed
         run: |
           git config user.name "investment-tracker-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/price-history.json data/alerts.json
-          git diff --quiet --cached || git commit -m "อัปเดตราคาและสัญญาณเตือนอัตโนมัติ"
+          git add price-history.json alerts.json
+          git diff --quiet --cached || git commit -m "Update prices and alerts"
           git push
